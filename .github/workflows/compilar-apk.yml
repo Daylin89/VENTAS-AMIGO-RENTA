@@ -1,0 +1,45 @@
+name: Compilar APK
+
+on:
+  push:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Descomprimir el proyecto (el zip subido más reciente)
+        run: |
+          ZIP=""; BEST=0
+          while IFS= read -r -d '' f; do
+            T=$(git log -1 --format=%ct -- "$f" 2>/dev/null || echo 0)
+            [ -z "$T" ] && T=0
+            echo "Zip: $f (subido: $T)"
+            if [ "$T" -ge "$BEST" ]; then BEST=$T; ZIP="$f"; fi
+          done < <(find . -maxdepth 1 -name '*.zip' -print0)
+          echo "Se compila: $ZIP"
+          if [ -n "$ZIP" ]; then unzip -o -q "$ZIP" -d proyecto; else mkdir -p proyecto && cp -r . proyecto/ 2>/dev/null || true; fi
+          DIR=$(dirname "$(find proyecto -name settings.gradle -not -path '*/node_modules/*' | head -1)")
+          echo "Proyecto en: $DIR"
+          echo "PROJ=$DIR" >> $GITHUB_ENV
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: 8.10.2
+
+      - name: Compilar
+        run: cd "$PROJ" && gradle assembleDebug --no-daemon
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: APK
+          path: ${{ env.PROJ }}/app/build/outputs/apk/debug/*.apk
